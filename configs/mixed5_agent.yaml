@@ -1,0 +1,19 @@
+# Level 3 (agent) demo: start with Max-CQI (starves the cell edge) and let the agent react.
+# A -10 dB interference event hits UE 3 at slot 1500.
+slots: 3000
+seed: 1
+mu: 1
+n_prb: 50
+max_ues_per_slot: 2
+algo: {name: maxcqi}
+phy: {harq_enabled: true, k1: 4, n_harq: 16, max_retx: 3, bler_model: logistic, olla_enabled: false}
+reports: {p_cqi: 5, d_cqi: 2, p_bsr: 10}
+metrics: {warmup_slots: 200}
+agent: {enabled: true, interval: 10, analysis_window: 100, kb: stub}
+ues:
+  - {id: 0, channel: {mean_sinr_db: 22, noise_std_db: 2.0}}
+  - {id: 1, channel: {mean_sinr_db: 16, noise_std_db: 2.0}}
+  - {id: 2, channel: {mean_sinr_db: 18, ramp_to_db: 2, noise_std_db: 2.0}}
+  - {id: 3, channel: {mean_sinr_db: 12, noise_std_db: 2.0,
+                      events: [{slot: 1500, delta_db: -10}]}}
+  - {id: 4, channel: {mean_sinr_db: 5,  noise_std_db: 2.0}}

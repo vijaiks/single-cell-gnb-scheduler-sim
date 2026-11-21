@@ -1,0 +1,12 @@
+digraph G {
+  graph [rankdir=LR, fontname="Helvetica", nodesep=0.5, ranksep=0.9, pad=0.2];
+  node  [shape=ellipse, style="filled", fontname="Helvetica", fontsize=11, fillcolor="#FFF6E5", color="#555555"];
+  edge  [fontname="Helvetica", fontsize=9, color="#555555", arrowsize=0.7];
+  IDLE [fillcolor="#EEF8EE"]; WAIT [label="WAIT_FEEDBACK"]; PEND [label="PENDING_RETX"]; DROP [label="(drop)", shape=plaintext, style=""];
+  IDLE -> WAIT [label="new TB granted\nBLER draw at tx\nfeedback at t+K1"];
+  WAIT -> IDLE [label="ACK\ndelivered += tbs"];
+  WAIT -> PEND [label="NACK and\nretx < max_retx"];
+  PEND -> WAIT [label="retx granted\nretx++, SINR gain\n(combining)"];
+  WAIT -> DROP [label="NACK and\nretx == max_retx", style=dashed];
+  DROP -> IDLE [label="loss counted", style=dashed];
+}

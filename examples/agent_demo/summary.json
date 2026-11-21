@@ -1,0 +1,78 @@
+{
+  "slots_measured": 2800,
+  "warmup_slots": 200,
+  "cell_throughput_mbps": 38.38822857142856,
+  "prb_utilization": 1.0,
+  "jain_throughput": 0.7881719842163774,
+  "jain_resource_share": 0.9986494239714458,
+  "retx_blocked_slots": 0,
+  "out_of_range_slots": 0,
+  "ues": [
+    {
+      "ue": 0,
+      "throughput_mbps": 14.377851428571427,
+      "prb_share": 0.2034,
+      "slot_share": 0.4717857142857143,
+      "avg_cqi": 14.20357142857143,
+      "avg_mcs": 25.766086298258895,
+      "first_tx_bler": 0.1028428093645485,
+      "dropped_blocks": 0,
+      "mean_buffer_kB": 125000000.0,
+      "max_unserved_run": 23,
+      "starved": false
+    },
+    {
+      "ue": 1,
+      "throughput_mbps": 9.831411428571426,
+      "prb_share": 0.19714285714285715,
+      "slot_share": 0.45285714285714285,
+      "avg_cqi": 11.630714285714285,
+      "avg_mcs": 21.608044164037857,
+      "first_tx_bler": 0.14325068870523416,
+      "dropped_blocks": 1,
+      "mean_buffer_kB": 125000000.0,
+      "max_unserved_run": 25,
+      "starved": false
+    },
+    {
+      "ue": 2,
+      "throughput_mbps": 6.018142857142856,
+      "prb_share": 0.19380714285714284,
+      "slot_share": 0.4421428571428571,
+      "avg_cqi": 8.729642857142856,
+      "avg_mcs": 14.954765751211632,
+      "first_tx_bler": 0.17557251908396945,
+      "dropped_blocks": 0,
+      "mean_buffer_kB": 125000000.0,
+      "max_unserved_run": 36,
+      "starved": false
+    },
+    {
+      "ue": 3,
+      "throughput_mbps": 4.803582857142857,
+      "prb_share": 0.21273571428571428,
+      "slot_share": 0.4732142857142857,
+      "avg_cqi": 7.345714285714286,
+      "avg_mcs": 11.22566037735849,
+      "first_tx_bler": 0.16578014184397163,
+      "dropped_blocks": 0,
+      "mean_buffer_kB": 125000000.0,
+      "max_unserved_run": 65,
+      "starved": false
+    },
+    {
+      "ue": 4,
+      "throughput_mbps": 3.3572399999999996,
+      "prb_share": 0.1929142857142857,
+      "slot_share": 0.43214285714285716,
+      "avg_cqi": 6.593571428571429,
+      "avg_mcs": 9.377685950413223,
+      "first_tx_bler": 0.14708691499522444,
+      "dropped_blocks": 0,
+      "mean_buffer_kB": 125000000.0,
+      "max_unserved_run": 37,
+      "starved": false
+    }
+  ],
+  "algo": "pf"
+}

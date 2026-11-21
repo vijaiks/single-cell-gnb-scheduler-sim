@@ -1,0 +1,48 @@
+digraph G {
+  graph [rankdir=TB, fontname="Helvetica", fontsize=12, nodesep=0.35, ranksep=0.55, compound=true, pad=0.2, newrank=true];
+  node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, fillcolor="#FFFFFF", color="#555555", margin="0.12,0.07"];
+  edge  [fontname="Helvetica", fontsize=9, color="#555555"];
+
+  cfg [label="Scenario config (YAML)\nUEs, channel, traffic, PHY, algo", fillcolor="#F2F2F2"];
+  cli [label="CLI: run / compare / report", fillcolor="#F2F2F2"];
+
+  subgraph cluster_core { label="Simulation core"; style="rounded,filled"; fillcolor="#EEF3FB"; color="#8AA7D6";
+    eng [label="SimEngine\n(slot loop, seeded RNG)"];
+    clk [label="Numerology / Clock\nmu, slot duration, PRBs"];
+  }
+  subgraph cluster_env { label="Environment (per UE)"; style="rounded,filled"; fillcolor="#EEF8EE"; color="#8CC08C";
+    chn [label="ChannelModel\nSINR trace (static, walk,\nramp, fading)"];
+    trf [label="TrafficModel\nfull-buffer, Poisson, periodic"];
+    ue  [label="UE state\nCQI, buffer, priority, HARQ ctx"];
+  }
+  subgraph cluster_gnb { label="gNB MAC / PHY abstraction"; style="rounded,filled"; fillcolor="#FFF6E5"; color="#E0B25A";
+    rep [label="Report handler\nCQI + BSR (period, delay)"];
+    la  [label="LinkAdaptation\nCQI -> MCS (+ OLLA offset)"];
+    sch [label="Scheduler (Strategy)\nRoundRobin | MaxCQI | PF", fillcolor="#FFE3A6"];
+    alc [label="PRB Allocator\nretx first, split PRBs over top-K\nranked UEs (K hard limit)"];
+    har [label="HARQ Manager\nprocesses, feedback, retx"];
+    phy [label="PHY abstraction\nTBS calc + BLER draw"];
+  }
+  subgraph cluster_obs { label="Observability"; style="rounded,filled"; fillcolor="#F6EEF8"; color="#B58FC4";
+    met [label="MetricsCollector\nper-slot log + aggregates"];
+    rpt [label="Reports\nCSV/JSON, plots, Jain index"];
+  }
+  subgraph cluster_agent { label="Layer 3: Agent (runs every 10 slots, looks at last 100)"; style="rounded,filled"; fillcolor="#FDECEC"; color="#D98C8C";
+    ana [label="WindowAnalyzer\nrule-based findings"];
+    kb  [label="KBClient\nkb-rag search_kb"];
+    exp [label="Explainer\nplain-language text"];
+    act [label="ActionPlanner + Guardrails\nfixed action menu"];
+  }
+
+  cfg -> eng; cli -> eng;
+  eng -> clk; eng -> chn; eng -> trf;
+  chn -> ue [label="SINR"]; trf -> ue [label="arrivals"];
+  ue -> rep; rep -> la; la -> sch [label="candidates"];
+  sch -> alc [label="ranking"]; alc -> har [label="grants"]; har -> phy; phy -> ue [label="delivered bits", constraint=false];
+  eng -> met [style=dashed]; har -> met [style=dashed]; sch -> met [style=dashed];
+  met -> rpt;
+  met -> ana [label="window log"];
+  ana -> kb [label="queries"]; kb -> exp [label="cited chunks"]; ana -> exp [label="facts"];
+  exp -> act; act -> sch [label="weights / algo", color="#C0392B", fontcolor="#C0392B", constraint=false];
+  act -> la  [label="MCS offset", color="#C0392B", fontcolor="#C0392B", constraint=false];
+}

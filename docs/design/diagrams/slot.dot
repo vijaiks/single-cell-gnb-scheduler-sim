@@ -1,0 +1,17 @@
+digraph G {
+  graph [rankdir=TB, fontname="Helvetica", nodesep=0.25, ranksep=0.28, pad=0.2];
+  node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, fillcolor="#FFFFFF", color="#555555", margin="0.14,0.06", width=5.4];
+  edge  [color="#555555", arrowsize=0.7];
+  s0 [label="0  Start slot t", fillcolor="#F2F2F2"];
+  s1 [label="1  Advance environment\nchannel SINR(t), traffic arrivals -> UE buffers"];
+  s2 [label="2  UE reports\nCQI (every P_cqi slots), BSR (every P_bsr slots) - stale between reports"];
+  s3 [label="3  HARQ feedback due at t\nACK -> free process, count delivered bits\nNACK -> mark pending-retx (or drop if max retx)"];
+  s4 [label="4  Link adaptation\nreported CQI -> MCS (+ OLLA offset), bits per PRB; CQI 0 = not schedulable"];
+  s5 [label="5  Build candidates\nA: pending retx (served first)   B: new data (buffer > 0, free HARQ process)"];
+  s6 [label="6  Scheduler.rank(B)\nRR / MaxCQI / PF metric -> ordered UE list", fillcolor="#FFE3A6"];
+  s7 [label="7  PRB allocator\nretx first (1 grant per UE); then split PRBs equally over the top-K ranked UEs\n(K = max_ues_per_slot, hard limit), each capped at need = ceil(buffer_bits / bits_per_prb);\nfreed PRBs flow to the others in the top-K, else stay idle"];
+  s8 [label="8  PHY abstraction\nTBS from (MCS, PRBs); BLER draw; schedule feedback at t + K1"];
+  s9 [label="9  Update state + log\nbuffers, PF average rate (EMA), RR pointer, per-slot metrics"];
+  s10 [label="10 Every N=10 slots: Agent hook\n(analyze last A=100 slots -> explain -> maybe act; actions apply from t+1)", fillcolor="#FDECEC"];
+  s0->s1->s2->s3->s4->s5->s6->s7->s8->s9->s10;
+}

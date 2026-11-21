@@ -1,0 +1,18 @@
+# Level 2 (realistic): PRB splitting over 2 UEs, HARQ + BLER, stale CQI/BSR, OLLA, mixed traffic.
+slots: 3000
+seed: 1
+mu: 1                      # 30 kHz, 0.5 ms slots
+n_prb: 50
+max_ues_per_slot: 2
+algo: {name: pf, params: {tc: 100}}
+phy: {harq_enabled: true, k1: 4, n_harq: 16, max_retx: 3, bler_model: logistic, olla_enabled: true}
+reports: {p_cqi: 5, d_cqi: 2, p_bsr: 10}
+metrics: {warmup_slots: 300}
+ues:
+  - {id: 0, channel: {mean_sinr_db: 22, noise_std_db: 2.0}}
+  - {id: 1, channel: {mean_sinr_db: 16, noise_std_db: 2.0}}
+  - {id: 2, channel: {mean_sinr_db: 18, ramp_to_db: 2, noise_std_db: 2.0}}
+  - {id: 3, channel: {mean_sinr_db: 10, noise_std_db: 2.0},
+     traffic: {type: poisson, rate_pps: 2000, pkt_bytes: 1200}}
+  - {id: 4, channel: {mean_sinr_db: 3,  noise_std_db: 2.0},
+     traffic: {type: periodic, every_n_slots: 20, bytes: 2000}}

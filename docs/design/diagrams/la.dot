@@ -1,0 +1,14 @@
+digraph G {
+  graph [rankdir=TB, fontname="Helvetica", nodesep=0.3, ranksep=0.3, pad=0.2];
+  node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10.5, fillcolor="#FFFFFF", color="#555555", margin="0.1,0.06"];
+  edge  [fontname="Helvetica", fontsize=9, color="#555555", arrowsize=0.7];
+  a [label="True SINR(t)\n(channel model)", fillcolor="#EEF8EE"];
+  b [label="CQI report\nquantize to 1..15\n(period, delay)"];
+  c [label="CQI -> efficiency\n38.214 CQI table\n(Table 5.2.2.1-2)"];
+  d [label="MCS select\nhighest MCS with\nefficiency <= CQI eff\n(+ OLLA offset)"];
+  e [label="MCS -> (Qm, R)\n38.214 MCS table 1\n(5.1.3.1-1)"];
+  f [label="TBS (simplified)\nN_RE = 156 * PRBs\nbits = N_RE*Qm*R*layers"];
+  g [label="BLER draw\nlogistic(SINR - thr(MCS))\n-> ACK / NACK", fillcolor="#FFE3A6"];
+  a->b->c->d->e->f->g;
+  a->g [label="uses TRUE SINR\n(not the stale CQI)", constraint=false, style=dashed, color="#C0392B", fontcolor="#C0392B"];
+}

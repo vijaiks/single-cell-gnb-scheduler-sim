@@ -1,0 +1,16 @@
+digraph G {
+  graph [rankdir=TB, fontname="Helvetica", nodesep=0.35, ranksep=0.4, pad=0.2];
+  node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10.5, fillcolor="#FFFFFF", color="#555555", margin="0.12,0.07"];
+  edge  [fontname="Helvetica", fontsize=9, color="#555555", arrowsize=0.7];
+  w  [label="Rolling log (last A=100 slots)\nread every N=10 slots from MetricsCollector", fillcolor="#F6EEF8"];
+  a  [label="1. WindowAnalyzer (plain Python, deterministic)\nrules -> Finding{ue, symptom, evidence}\nSTARVATION, CQI_DROP, HIGH_BLER, LOW_BLER,\nHARQ_EXHAUSTED, QUEUE_GROWING, LOW_FAIRNESS, PRB_UNDERUSE"];
+  q  [label="2. Query builder\nfinding -> 1-3 targeted kb-rag queries\n(e.g. 'low CQI effect on TBS and PF metric')"];
+  k  [label="3. KBClient.search(query, tech)\nreturns chunks with file + page", fillcolor="#FFE3A6"];
+  e  [label="4. Explainer\nfacts + cited chunks -> simple-language explanation\n(template by default, LLM optional)"];
+  p  [label="5. ActionPlanner\npick ONE action from fixed menu\nRAISE_WEIGHT | SWITCH_ALGO | LOWER_MCS_OFFSET\nINCREASE_TC | FLAG_INTERFERENCE (advice only)"];
+  g  [label="6. Guardrails\ncooldown, bounds, one action per window,\nrollback if cell throughput or fairness worsens", fillcolor="#FDECEC"];
+  s  [label="7. Apply at slot t+1\n(Scheduler / LinkAdaptation params)"];
+  o  [label="8. Outcome check one analysis window (A slots) later\nbefore vs after: UE throughput, Jain, cell throughput\nlogged to agent_log.jsonl", fillcolor="#EEF8EE"];
+  w->a->q->k->e->p->g->s->o;
+  o->a [label="every N slots", style=dashed, constraint=false];
+}

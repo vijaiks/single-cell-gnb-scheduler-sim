@@ -1,0 +1,22 @@
+digraph G {
+  graph [rankdir=TB, fontname="Helvetica", nodesep=0.3, ranksep=0.45, pad=0.2, newrank=true];
+  node  [shape=record, style="filled", fillcolor="#FFFFFF", fontname="Helvetica", fontsize=10, color="#555555"];
+  edge  [color="#555555", fontsize=9, fontname="Helvetica", arrowsize=0.7];
+
+  Config [label="{SimConfig|slots, seed, mu, n_prb, max_ues_per_slot (K), prb_policy\lalgo (name, params)\lphy (harq on/off, k1, max_retx, bler model)\lreports (p_cqi, p_bsr, delay)\lagent (interval N, analysis_window A, enabled)\lues: list[UEConfig]\l}"];
+  UEC [label="{UEConfig|id, priority (weight)\lchannel: ChannelSpec\ltraffic: TrafficSpec\l}"];
+  UE [label="{UEState|id, priority\lsinr_db (true), cqi_reported\lbuffer_bytes (true), bsr_reported\lmcs_offset (OLLA)\lharq: list[HarqProcess]\l}"];
+  HP [label="{HarqProcess|pid, state (IDLE, WAIT_FB, PENDING_RETX)\ltbs_bits, mcs, n_prb, retx_count\lfeedback_slot, will_fail (drawn at tx)\l}"];
+  Cand [label="{Candidate|ue_id, cqi, mcs\lbits_per_prb, buffer_bits (reported)\lweight, is_retx\l}"];
+  Grant [label="{Grant|ue_id, prb_start, prb_len\lmcs, tbs_bits, pid, is_retx\l}"];
+  Sch [label="{\<\<interface\>\> Scheduler|name\l|rank(ctx, cands) -\> list[Candidate]\lon_slot_end(ctx, served_bits)\lset_param(ue_id, key, value)\l}", fillcolor="#FFE3A6"];
+  RR [label="{RoundRobin|pointer}"]; MC [label="{MaxCQI|-}"]; PF [label="{ProportionalFair|tc, avg_rate[ue], beta}"];
+  Rec [label="{SlotRecord (log row)|slot, ue_id, cqi, mcs, prbs\ltbs_bits, ok (ACK/NACK/None)\lis_retx, buffer_bytes, harq_busy\l}"];
+
+  Config -> UEC [label="1..N"]; UEC -> UE [label="instantiates"]; UE -> HP [label="1..16"];
+  UE -> Cand [label="builds"]; Cand -> Sch [label="input"]; Sch -> Grant [label="via allocator", style=dashed];
+  {rank=same; HP; Cand;}
+  {rank=same; RR; MC; PF;}
+  Sch -> RR [dir=back, arrowtail=empty]; Sch -> MC [dir=back, arrowtail=empty]; Sch -> PF [dir=back, arrowtail=empty];
+  Grant -> Rec [style=dashed, label="logged"];
+}

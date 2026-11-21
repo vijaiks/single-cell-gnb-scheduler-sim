@@ -1,0 +1,15 @@
+# Quick 100-slot look (no warm-up exclusion). PF needs ~tc slots to settle, so numbers are rough.
+slots: 100
+seed: 1
+n_prb: 50
+max_ues_per_slot: 1
+algo: {name: pf, params: {tc: 20}}
+phy: {harq_enabled: false, bler_model: none}
+reports: {p_cqi: 1, d_cqi: 0, p_bsr: 1}
+metrics: {warmup_slots: 0}
+ues:
+  - {id: 0, channel: {mean_sinr_db: 22, noise_std_db: 2.0}}
+  - {id: 1, channel: {mean_sinr_db: 16, noise_std_db: 2.0}}
+  - {id: 2, channel: {mean_sinr_db: 18, ramp_to_db: 2, noise_std_db: 2.0}}
+  - {id: 3, channel: {mean_sinr_db: 10, noise_std_db: 2.0}}
+  - {id: 4, channel: {mean_sinr_db: 3,  noise_std_db: 2.0}}

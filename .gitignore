@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Environments / tooling
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.vscode/
+.idea/
+
+# Simulator outputs (regenerate with `python -m gnbsim ...`)
+runs/
+
+# kb-rag cache: verbatim text from a private knowledge base (regenerate with --prefetch)
+kb_cache.jsonl
+*.kbcache.jsonl
