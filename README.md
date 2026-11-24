@@ -18,7 +18,7 @@ or who want a compact example of an "explain, then act, then verify" agent wrapp
 - **An explaining agent:** every 10 slots it checks the last 100 against plain rules, looks up *why* in a
   knowledge base, writes an explanation with file and page citations, and applies at most one action. Each
   action has a cooldown and bounds, and is rolled back if it doesn't help.
-- **Deterministic and tested:** the same seed gives identical logs, and 52 tests run in about 1 s.
+- **Deterministic and tested:** the same seed gives identical logs, and 87 tests run in about 1 s.
 
 ## Quick start
 
@@ -29,7 +29,7 @@ git clone https://github.com/vijaiks/single-cell-gnb-scheduler-sim
 cd single-cell-gnb-scheduler-sim
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"            # numpy, PyYAML, matplotlib, pytest
-pytest -q                          # 52 tests, ~1 s
+pytest -q                          # 87 tests, ~1 s
 
 python -m gnbsim compare   configs/mixed5_l1.yaml      # RR vs Max-CQI vs PF: table + plot
 python -m gnbsim run       configs/mixed5_l2.yaml      # realistic MAC/PHY: HARQ, BLER, delayed reports
@@ -180,7 +180,7 @@ src/gnbsim/
   config.py      config schema   cli.py  command line    plots.py  figures
 tools/           kb_rag_search.py: kb-rag command-line wrapper
 configs/         mixed5_l1, mixed5_l2, mixed5_agent, mixed5_agent_kb, demo_100slots
-tests/           PHY, allocator, schedulers, engine invariants, scenarios, agent
+tests/           PHY, HARQ, traffic, allocator, schedulers, engine invariants, scenarios, agent
 docs/design/     design document (PDF) and Graphviz sources for its diagrams
 examples/        sample outputs: scheduler comparison, agent run
 ```
