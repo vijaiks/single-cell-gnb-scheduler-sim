@@ -18,7 +18,7 @@ or who want a compact example of an "explain, then act, then verify" agent wrapp
 - **An explaining agent:** every 10 slots it checks the last 100 against plain rules, looks up *why* in a
   knowledge base, writes an explanation with file and page citations, and applies at most one action. Each
   action has a cooldown and bounds, and is rolled back if it doesn't help.
-- **Deterministic and tested:** the same seed gives identical logs, and 87 tests run in about 1 s.
+- **Deterministic and tested:** the same seed gives identical logs, and 336 tests run in about 1 s.
 
 ## Quick start
 
@@ -29,7 +29,7 @@ git clone https://github.com/vijaiks/single-cell-gnb-scheduler-sim
 cd single-cell-gnb-scheduler-sim
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"            # numpy, PyYAML, matplotlib, pytest
-pytest -q                          # 87 tests, ~1 s
+pytest -q                          # 336 tests, ~1 s
 
 python -m gnbsim compare   configs/mixed5_l1.yaml      # RR vs Max-CQI vs PF: table + plot
 python -m gnbsim run       configs/mixed5_l2.yaml      # realistic MAC/PHY: HARQ, BLER, delayed reports
@@ -173,6 +173,9 @@ src/gnbsim/
   schedulers/    rr.py, maxcqi.py, pf.py behind base.py
   allocator.py   splits PRBs among the UEs picked for the slot
   phy.py         CQI → MCS → TBS, BLER model              tables.py  3GPP TS 38.214 tables
+  macpdu.py      pack / unpack DL and UL MAC PDUs         macce.py  DL / UL MAC control elements (BSR, PHR, TA, ...)
+  bsr_tables.py  TS 38.321 buffer size levels             ulgrant.py  full TS 38.214 TBS, BSR -> PRB grant sizing
+  ul_sim.py      standalone UL loop using the MAC PDU library (`python -m gnbsim.ul_sim`); separate from the DL engine
   harq.py        HARQ processes and retransmissions       numerology.py  slot timing per μ
   channel.py     synthetic SINR traces                    traffic.py  full-buffer / Poisson / periodic
   ue.py          per-UE state, OLLA offset                metrics.py  per-slot log, summaries, Jain index
@@ -180,7 +183,7 @@ src/gnbsim/
   config.py      config schema   cli.py  command line    plots.py  figures
 tools/           kb_rag_search.py: kb-rag command-line wrapper
 configs/         mixed5_l1, mixed5_l2, mixed5_agent, mixed5_agent_kb, demo_100slots
-tests/           PHY, HARQ, traffic, allocator, schedulers, engine invariants, scenarios, agent
+tests/           PHY, HARQ, traffic, MAC PDU / CE, uplink loop, allocator, schedulers, engine invariants, scenarios, agent
 docs/design/     design document (PDF) and Graphviz sources for its diagrams
 examples/        sample outputs: scheduler comparison, agent run
 ```
@@ -190,7 +193,7 @@ link-adaptation models, and the agent design, with diagrams.
 
 ## Limitations
 
-- One cell, downlink only, no inter-cell interference model, no mobility beyond scripted SINR ramps and events.
+- One cell, downlink only (`ul_sim.py` is a separate uplink demo), no inter-cell interference model, no mobility beyond scripted SINR ramps and events.
 - SINR traces are synthetic, and the BLER curve is an abstraction that is not calibrated to a real network.
 - Simplified TBS: `156 RE/PRB × Qm × R × layers`, without the full TS 38.214 §5.1.3.2 quantisation. It is
   within 1% of the known maximum NR TBS (319,784 bits: 275 PRBs, 256QAM, R = 948/1024).
