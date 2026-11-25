@@ -1,12 +1,20 @@
 # single-cell-gnb-scheduler-sim
 
-A small, readable **5G NR downlink scheduler simulator**: one gNB cell, five UEs, simulated slot by slot.
+A small, readable **5G NR MAC scheduler simulator**: one gNB cell, five UEs, simulated slot by slot in the downlink.
+It also includes a **MAC PDU / control element library** (DL and UL, byte-exact) and an **uplink scheduling demo**
+built on it.
+
 Compare the classic MAC schedulers (Round Robin, Max-CQI, Proportional Fair) under a realistic MAC/PHY
 abstraction, and watch a rule-based **agent** spot problems such as starving users, explain them in plain
 language with document citations, and apply one safe fix at a time.
 
 Who it's for: engineers and students who want to *see* the throughput-vs-fairness trade-off of NR scheduling,
-or who want a compact example of an "explain, then act, then verify" agent wrapped around a simulator.
+who want a compact example of an "explain, then act, then verify" agent wrapped around a simulator, or who need
+readable Python to encode and decode NR MAC PDUs.
+
+**Jump to:** [Quick start](#quick-start) · [Results](#results) · [The agent](#the-agent) ·
+[MAC PDU and CE library](#mac-pdu-and-ce-library) · [Uplink demo](#uplink-demo) · [Configuration](#configuration) ·
+[Limitations](#limitations)
 
 ![RR vs Max-CQI vs PF: per-UE throughput and fairness](examples/l1_compare/compare.png)
 
@@ -18,6 +26,9 @@ or who want a compact example of an "explain, then act, then verify" agent wrapp
 - **An explaining agent:** every 10 slots it checks the last 100 against plain rules, looks up *why* in a
   knowledge base, writes an explanation with file and page citations, and applies at most one action. Each
   action has a cooldown and bounds, and is rolled back if it doesn't help.
+- **MAC PDU / CE library:** pack and unpack DL-SCH and UL-SCH MAC PDUs (TS 38.321) with 18 typed control elements,
+  including TA, SCell activation, DRX, BSR, PHR and C-RNTI.
+- **Uplink demo:** SR → grant → BSR → sized grant → HARQ, exchanging real MAC PDUs, with the full TS 38.214 TBS.
 - **Deterministic and tested:** the same seed gives identical logs, and 336 tests run in about 1 s.
 
 ## Quick start
@@ -35,11 +46,14 @@ python -m gnbsim compare   configs/mixed5_l1.yaml      # RR vs Max-CQI vs PF: ta
 python -m gnbsim run       configs/mixed5_l2.yaml      # realistic MAC/PHY: HARQ, BLER, delayed reports
 python -m gnbsim agent-run configs/mixed5_agent.yaml   # the agent starts on Max-CQI and reacts
 python -m gnbsim run configs/mixed5_agent.yaml --no-agent --algo maxcqi   # the same scenario without the agent
+
+python -m gnbsim.ul_sim            # uplink demo: prints a slot-by-slot trace
 ```
 
 Each run writes `runs/<config>_<algo>_<seed>/` containing `summary.json`, `slots.csv` (one row per slot),
 `config.yaml` (the resolved config) and `plots.png`. Agent runs also write `agent_log.jsonl`. Sample outputs
-are in [`examples/`](examples/). Every command also accepts `--slots`, `--seed` and `--out`.
+are in [`examples/`](examples/). These commands also accept `--slots`, `--seed` and `--out`; the uplink demo takes no
+options and only prints.
 
 ## Three levels of realism, one code base
 
@@ -88,6 +102,12 @@ which is the expected trade-off.
 | **BLER** | Block Error Rate: the fraction of first transmissions that fail. The usual target is about 10%. |
 | **HARQ** | Hybrid ARQ: fast retransmission of failed blocks. |
 | **BSR** | Buffer Status Report: how much data a UE has waiting. |
+| **SR** | Scheduling Request: the UE's "I have data to send" signal when it has no uplink grant. |
+| **PHR** | Power Headroom Report: how much transmit power the UE has left. |
+| **MAC PDU** | The bytes carried in one transport block: a sequence of subPDUs (SDUs, CEs, padding). |
+| **MAC CE** | MAC Control Element: a short control message inside a MAC PDU, such as a BSR or timing advance. |
+| **LCID** | Logical Channel ID in each subheader: says which channel or CE follows. Meanings differ in DL and UL. |
+| **LCG** | Logical Channel Group (0–7): the unit a BSR reports on. |
 | **OLLA** | Outer-Loop Link Adaptation: nudges MCS up or down to hold BLER near its target. |
 | **Jain index** | Fairness from 0.2 (one of 5 UEs gets everything) to 1.0 (all equal). Computed on throughput and on PRB share. |
 | **Starved** | A UE with data waiting that gets under half its fair PRB share, or no PRBs for 100 slots in a row. |
@@ -149,6 +169,80 @@ python -m gnbsim agent-run configs/mixed5_agent_kb.yaml         # kb: command, r
 Cache misses call the wrapper. Failed lookups are never cached, and the agent carries on without citations.
 `kb_cache.jsonl` is git-ignored because it holds text copied from your own documents.
 
+## MAC PDU and CE library
+
+[`macpdu.py`](src/gnbsim/macpdu.py) packs and unpacks whole MAC PDUs; [`macce.py`](src/gnbsim/macce.py) has one class
+per control element. It uses only the Python standard library and can be used without the simulator.
+
+**Downlink:** 100-byte transport block, CEs first, then SDUs, then padding.
+
+```python
+from gnbsim.macce import TACommand, SCellActivation
+from gnbsim.macpdu import DL, MacSdu, pack, unpack
+
+tb = pack([TACommand(tag_id=0, ta=33),      # 3d 21
+           SCellActivation({1, 2}),         # 3a 06
+           MacSdu(1, bytes(20)),            # 01 14 + 20 bytes (SRB1)
+           MacSdu(4, bytes(60))],           # 04 3c + 60 bytes (DRB)
+          tb_bytes=100, direction=DL)       # 3f + 11 bytes of padding
+unpack(tb, DL)                              # the same objects, plus Padding(11)
+```
+
+**Uplink:** SDUs first, then CEs, then padding.
+
+```python
+from gnbsim.macce import ShortBSR, SingleEntryPHR
+from gnbsim.macpdu import UL, MacSdu, pack, unpack
+
+tb = pack([MacSdu(4, b"hello"),
+           ShortBSR.from_bytes(lcg=2, n_bytes=3000),   # 3d 53
+           SingleEntryPHR(ph=40, pcmax=50)],           # 39 28 32
+          tb_bytes=20, direction=UL)
+unpack(tb, UL)[1].n_bytes()                            # 3909: the BSR level that covers 3000 bytes
+```
+
+| Direction | Control elements (LCID) |
+|---|---|
+| DL | Recommended bit rate (47), duplication activation (56), SCell activation 4-octet (57) and 1-octet (58), long DRX command (59), DRX command (60), timing advance (61), contention resolution (62) |
+| DL, raw bytes only | Beam and CSI activation CEs (48–55) |
+| UL | Bit rate query (53), multi-entry PHR 4-octet (54) and 1-octet (56), configured grant confirmation (55), single-entry PHR (57), C-RNTI (58), short truncated BSR (59), long truncated BSR (60), short BSR (61), long BSR (62) |
+
+Also included: `build_tb` (fill a block from RLC queues), `dispatch` (route SDUs and CEs), and `regular_bsr` /
+`padding_bsr` (pick the BSR format). Truncated PDUs, bad field values and unsupported LCIDs raise `MacPduError`.
+
+## Uplink demo
+
+In the uplink the data is in the UE but the gNB decides who sends, so the two exchange real MAC PDUs:
+
+```
+UE                                            gNB
+ │── SR: "I have data" ────────────────────►
+ │◄─ DCI: small grant ──────────────────────
+ │── PUSCH: some data + BSR ───────────────►  unpack, estimate the UE's buffer
+ │◄─ DCI: grant sized from the BSR ─────────  fewest PRBs whose TBS fits
+ │── PUSCH: the remaining data ────────────►  CRC failure → HARQ retransmission
+```
+
+`python -m gnbsim.ul_sim` runs two UEs, with one forced CRC failure. Part of its output:
+
+```
+[slot   0] UE0 3000B arrive on LCID 4
+[slot   1] UE0 sends SR
+[slot   3] gNB DCI UE0 pid0 NDI1 (new) 63B (2 PRB) -> PUSCH slot 7
+[slot   7] UE0 PUSCH pid0 TB#0 63B attempt 0
+[slot   9] gNB UE0 ShortBSR = 3909B, already granted later 0B -> est 3909B
+[slot   9] gNB DCI UE0 pid0 NDI0 (new) 3329B (106 PRB) -> PUSCH slot 13
+...
+[slot  15] gNB UE0 pid0 CRC fail -> retx needed
+[slot  15] gNB DCI UE0 pid0 NDI0 (same) RV2 3329B -> PUSCH slot 19
+...
+UE0: injected 3000 B, delivered 3000 B, completed at slot 21
+UE1: injected 1500 B, delivered 1500 B, completed at slot 39
+```
+
+The demo is separate from the downlink engine and the agent: it does not use the YAML configs or change their results.
+Grant sizing ([`ulgrant.py`](src/gnbsim/ulgrant.py)) uses the full TS 38.214 TBS calculation.
+
 ## Configuration
 
 Configs are YAML files. Every key and its default is defined in [`src/gnbsim/config.py`](src/gnbsim/config.py).
@@ -183,7 +277,8 @@ src/gnbsim/
   config.py      config schema   cli.py  command line    plots.py  figures
 tools/           kb_rag_search.py: kb-rag command-line wrapper
 configs/         mixed5_l1, mixed5_l2, mixed5_agent, mixed5_agent_kb, demo_100slots
-tests/           PHY, HARQ, traffic, MAC PDU / CE, uplink loop, allocator, schedulers, engine invariants, scenarios, agent
+tests/           PHY, HARQ, traffic, MAC PDU / CE, uplink, allocator, schedulers, engine invariants,
+                 scenarios, agent
 docs/design/     design document (PDF) and Graphviz sources for its diagrams
 examples/        sample outputs: scheduler comparison, agent run
 ```
@@ -195,9 +290,12 @@ link-adaptation models, and the agent design, with diagrams.
 
 - One cell, downlink only (`ul_sim.py` is a separate uplink demo), no inter-cell interference model, no mobility beyond scripted SINR ramps and events.
 - SINR traces are synthetic, and the BLER curve is an abstraction that is not calibrated to a real network.
-- Simplified TBS: `156 RE/PRB × Qm × R × layers`, without the full TS 38.214 §5.1.3.2 quantisation. It is
+- Simplified TBS in the downlink engine: `156 RE/PRB × Qm × R × layers`, without the full TS 38.214 §5.1.3.2 quantisation. It is
   within 1% of the known maximum NR TBS (319,784 bits: 275 PRBs, 256QAM, R = 948/1024).
 - `max_ues_per_slot` caps UEs that get new data. Retransmissions are extra, with one grant per UE per slot.
+- MAC library: no eLCID or newer Rel-16+ CEs and no type-2 PHR; PHR values are raw indices, not dB. The CE layouts
+  were not tested against real equipment.
+- Uplink demo: fixed MCS, strict priority between channels, no power control or DRX, no RLC retransmission.
 - The agent is rule-based: no learning, fixed thresholds, and one action per window.
 
 ## License
