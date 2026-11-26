@@ -1,8 +1,8 @@
 # single-cell-gnb-scheduler-sim
 
 A small, readable **5G NR MAC scheduler simulator**: one gNB cell, five UEs, simulated slot by slot in the downlink.
-It also includes a **MAC PDU / control element library** (DL and UL, byte-exact) and an **uplink scheduling demo**
-built on it.
+It also includes a **MAC PDU / control element library** (DL and UL, byte-exact, plus the random access response),
+an **uplink scheduling demo** and a **random access (RACH) demo** built on it.
 
 Compare the classic MAC schedulers (Round Robin, Max-CQI, Proportional Fair) under a realistic MAC/PHY
 abstraction, and watch a rule-based **agent** spot problems such as starving users, explain them in plain
@@ -13,7 +13,8 @@ who want a compact example of an "explain, then act, then verify" agent wrapped 
 readable Python to encode and decode NR MAC PDUs.
 
 **Jump to:** [Quick start](#quick-start) · [Results](#results) · [The agent](#the-agent) ·
-[MAC PDU and CE library](#mac-pdu-and-ce-library) · [Uplink demo](#uplink-demo) · [Configuration](#configuration) ·
+[MAC PDU and CE library](#mac-pdu-and-ce-library) · [Uplink demo](#uplink-demo) · [Random access demo](#random-access-demo) ·
+[Configuration](#configuration) ·
 [Limitations](#limitations)
 
 ![RR vs Max-CQI vs PF: per-UE throughput and fairness](examples/l1_compare/compare.png)
@@ -29,7 +30,9 @@ readable Python to encode and decode NR MAC PDUs.
 - **MAC PDU / CE library:** pack and unpack DL-SCH and UL-SCH MAC PDUs (TS 38.321) with 18 typed control elements,
   including TA, SCell activation, DRX, BSR, PHR and C-RNTI.
 - **Uplink demo:** SR → grant → BSR → sized grant → HARQ, exchanging real MAC PDUs, with the full TS 38.214 TBS.
-- **Deterministic and tested:** the same seed gives identical logs, and 336 tests run in about 1 s.
+- **Random access demo:** 4-step contention-based RACH (preamble → RAR → Msg3 → contention resolution) with
+  preamble collisions, backoff and retries, using a byte-exact RAR PDU builder and parser.
+- **Deterministic and tested:** the same seed gives identical logs, and 373 tests run in about 1 s.
 
 ## Quick start
 
@@ -40,7 +43,7 @@ git clone https://github.com/vijaiks/single-cell-gnb-scheduler-sim
 cd single-cell-gnb-scheduler-sim
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"            # numpy, PyYAML, matplotlib, pytest
-pytest -q                          # 336 tests, ~1 s
+pytest -q                          # 373 tests, ~1 s
 
 python -m gnbsim compare   configs/mixed5_l1.yaml      # RR vs Max-CQI vs PF: table + plot
 python -m gnbsim run       configs/mixed5_l2.yaml      # realistic MAC/PHY: HARQ, BLER, delayed reports
@@ -48,12 +51,13 @@ python -m gnbsim agent-run configs/mixed5_agent.yaml   # the agent starts on Max
 python -m gnbsim run configs/mixed5_agent.yaml --no-agent --algo maxcqi   # the same scenario without the agent
 
 python -m gnbsim.ul_sim            # uplink demo: prints a slot-by-slot trace
+python -m gnbsim.rach_sim          # random access demo: collision example + 40-UE load test
 ```
 
 Each run writes `runs/<config>_<algo>_<seed>/` containing `summary.json`, `slots.csv` (one row per slot),
 `config.yaml` (the resolved config) and `plots.png`. Agent runs also write `agent_log.jsonl`. Sample outputs
-are in [`examples/`](examples/). These commands also accept `--slots`, `--seed` and `--out`; the uplink demo takes no
-options and only prints.
+are in [`examples/`](examples/). These commands also accept `--slots`, `--seed` and `--out`; the uplink and random
+access demos take no options and only print.
 
 ## Three levels of realism, one code base
 
@@ -108,6 +112,10 @@ which is the expected trade-off.
 | **MAC CE** | MAC Control Element: a short control message inside a MAC PDU, such as a BSR or timing advance. |
 | **LCID** | Logical Channel ID in each subheader: says which channel or CE follows. Meanings differ in DL and UL. |
 | **LCG** | Logical Channel Group (0–7): the unit a BSR reports on. |
+| **RACH** | Random access: how a UE without a C-RNTI gets one (preamble, RAR, Msg3, Msg4). |
+| **RAR** | Random Access Response (Msg2): timing advance, Msg3 grant and temporary C-RNTI per detected preamble. |
+| **RA-RNTI** | The identifier a RAR is addressed to, derived from the PRACH occasion the preamble used. |
+| **BI** | Backoff Indicator in the RAR: the maximum random wait before a UE retries. |
 | **OLLA** | Outer-Loop Link Adaptation: nudges MCS up or down to hold BLER near its target. |
 | **Jain index** | Fairness from 0.2 (one of 5 UEs gets everything) to 1.0 (all equal). Computed on throughput and on PRB share. |
 | **Starved** | A UE with data waiting that gets under half its fair PRB share, or no PRBs for 100 slots in a row. |
@@ -210,6 +218,19 @@ unpack(tb, UL)[1].n_bytes()                            # 3909: the BSR level tha
 Also included: `build_tb` (fill a block from RLC queues), `dispatch` (route SDUs and CEs), and `regular_bsr` /
 `padding_bsr` (pick the BSR format). Truncated PDUs, bad field values and unsupported LCIDs raise `MacPduError`.
 
+**Random access response** ([`rar.py`](src/gnbsim/rar.py), TS 38.321 §6.1.5, §6.2.2–6.2.3): the RAR PDU has its own
+format (E/T subheaders, 7-byte MAC RAR with TA, 27-bit UL grant and temporary C-RNTI), so it has its own builder and parser.
+
+```python
+from gnbsim.rar import RarEntry, build_rar_pdu, pack_ul_grant, parse_rar_pdu, ra_rnti
+
+grant = pack_ul_grant(hop=0, freq=0x123, time=2, mcs=4, tpc=3, csi=0)   # 27-bit Msg3 grant (TS 38.213 Table 8.2-1)
+pdu = build_rar_pdu([RarEntry(rapid=7, ta=100, grant=grant, tc_rnti=0x4601)], bi_idx=2)
+# 82 47 03 20 12 32 46 46 01 : BI subPDU (E=1, 20 ms), then last subPDU: RAPID 7 + MAC RAR
+parse_rar_pdu(pdu)                 # (2, [RarEntry(rapid=7, ta=100, ...)])
+ra_rnti(s_id=0, t_id=20, f_id=0)   # 281
+```
+
 ## Uplink demo
 
 In the uplink the data is in the UE but the gNB decides who sends, so the two exchange real MAC PDUs:
@@ -243,6 +264,41 @@ UE1: injected 1500 B, delivered 1500 B, completed at slot 39
 The demo is separate from the downlink engine and the agent: it does not use the YAML configs or change their results.
 Grant sizing ([`ulgrant.py`](src/gnbsim/ulgrant.py)) uses the full TS 38.214 TBS calculation.
 
+## Random access demo
+
+Before a UE can be scheduled it must get a C-RNTI through random access. Two UEs that pick the same preamble get
+the same RAR and send Msg3 on the same temporary C-RNTI; Msg4 echoes the identity of the one the gNB decoded, and
+the other UE backs off and tries again:
+
+```
+UE                                              gNB
+ │── Msg1: preamble (PRACH occasion) ────────►  detect preambles, measure TA
+ │◄─ Msg2: RAR on RA-RNTI (BI, RAPID, TA, ───  one MAC RAR per detected preamble
+ │        UL grant, temporary C-RNTI)
+ │── Msg3: UL CCCH SDU (48-bit identity) ────►  unpack the MAC PDU
+ │◄─ Msg4: Contention Resolution CE ─────────  echoes the identity it decoded
+ │   match → C-RNTI    no match / timer → backoff (0..BI), new preamble, up to preambleTransMax
+```
+
+`python -m gnbsim.rach_sim` first runs three UEs where UE0 and UE1 collide on preamble 23. Part of its output:
+
+```
+[slot  24 |   12.0 ms] gNB RAR on RA-RNTI 1: RAPIDs [7, 23], 17 B: 82 c7 00 50 10 72 46 46 01 57 00 d8 11 72 46 46 02
+[slot  30 |   15.0 ms] UE0 Msg3 on TC-RNTI 0x4602: 34 78 9b 34 ca f5 4f 3f 00 00 00
+[slot  30 |   15.0 ms] UE1 Msg3 on TC-RNTI 0x4602: 34 22 0a cd 94 1e 71 3f 00 00 00
+[slot  31 |   15.5 ms] gNB sees 2 UEs transmitting Msg3 on TC-RNTI 0x4602 (collision)
+[slot  31 |   15.5 ms] gNB decoded Msg3, Msg4 on TC-RNTI 0x4602 echoes 220acd941e71: 3e 22 0a cd 94 1e 71 3f 00 ...
+[slot  35 |   17.5 ms] UE0 contention resolution identity does not match, lost the contention
+[slot  35 |   17.5 ms] UE0 backoff 11.5 ms (PREAMBLE_BACKOFF 20 ms), then new preamble
+[slot  35 |   17.5 ms] UE1 contention resolution OK, TC-RNTI 0x4602 becomes its C-RNTI
+...
+[slot  75 |   37.5 ms] UE0 contention resolution OK, TC-RNTI 0x4603 becomes its C-RNTI
+```
+
+It then runs 40 UEs that all start within 8 ms and prints the success count, collisions, setup time and attempts.
+Msg3 is a real UL MAC PDU (`34` = UL CCCH, LCID 52, no length field) and Msg4 a real DL MAC PDU (`3e` = contention
+resolution CE, LCID 62), both built with the MAC library. Like the uplink demo, it is separate from the downlink engine.
+
 ## Configuration
 
 Configs are YAML files. Every key and its default is defined in [`src/gnbsim/config.py`](src/gnbsim/config.py).
@@ -270,6 +326,8 @@ src/gnbsim/
   macpdu.py      pack / unpack DL and UL MAC PDUs         macce.py  DL / UL MAC control elements (BSR, PHR, TA, ...)
   bsr_tables.py  TS 38.321 buffer size levels             ulgrant.py  full TS 38.214 TBS, BSR -> PRB grant sizing
   ul_sim.py      standalone UL loop using the MAC PDU library (`python -m gnbsim.ul_sim`); separate from the DL engine
+  rar.py         RAR PDU build / parse, RA-RNTI, Msg3 UL grant
+  rach_sim.py    standalone 4-step random access demo (`python -m gnbsim.rach_sim`); separate from the DL engine
   harq.py        HARQ processes and retransmissions       numerology.py  slot timing per μ
   channel.py     synthetic SINR traces                    traffic.py  full-buffer / Poisson / periodic
   ue.py          per-UE state, OLLA offset                metrics.py  per-slot log, summaries, Jain index
@@ -277,8 +335,8 @@ src/gnbsim/
   config.py      config schema   cli.py  command line    plots.py  figures
 tools/           kb_rag_search.py: kb-rag command-line wrapper
 configs/         mixed5_l1, mixed5_l2, mixed5_agent, mixed5_agent_kb, demo_100slots
-tests/           PHY, HARQ, traffic, MAC PDU / CE, uplink, allocator, schedulers, engine invariants,
-                 scenarios, agent
+tests/           PHY, HARQ, traffic, MAC PDU / CE, RAR, random access, uplink, allocator, schedulers,
+                 engine invariants, scenarios, agent
 docs/design/     design document (PDF) and Graphviz sources for its diagrams
 examples/        sample outputs: scheduler comparison, agent run
 ```
@@ -296,6 +354,9 @@ link-adaptation models, and the agent design, with diagrams.
 - MAC library: no eLCID or newer Rel-16+ CEs and no type-2 PHR; PHR values are raw indices, not dB. The CE layouts
   were not tested against real equipment.
 - Uplink demo: fixed MCS, strict priority between channels, no power control or DRX, no RLC retransmission.
+- Random access demo: 4-step contention-based only (no contention-free or 2-step RA, no SI-request RAPID-only subPDU),
+  no power ramping (detection probability rises per attempt instead), no HARQ on Msg3/Msg4, fixed Msg3 size,
+  Msg4 without RRCSetup, one PRACH occasion every 10 ms.
 - The agent is rule-based: no learning, fixed thresholds, and one action per window.
 
 ## License
