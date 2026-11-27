@@ -31,8 +31,9 @@ readable Python to encode and decode NR MAC PDUs.
   including TA, SCell activation, DRX, BSR, PHR and C-RNTI.
 - **Uplink demo:** SR → grant → BSR → sized grant → HARQ, exchanging real MAC PDUs, with the full TS 38.214 TBS.
 - **Random access demo:** 4-step contention-based RACH (preamble → RAR → Msg3 → contention resolution) with
-  preamble collisions, backoff and retries, using a byte-exact RAR PDU builder and parser.
-- **Deterministic and tested:** the same seed gives identical logs, and 373 tests run in about 1 s.
+  preamble collisions, backoff and retries, plus contention-free RA started by a PDCCH order (dedicated preamble,
+  done at the RAR). RAR PDUs and PDCCH-order DCIs are built and parsed byte-exact.
+- **Deterministic and tested:** the same seed gives identical logs, and 411 tests run in about 1 s.
 
 ## Quick start
 
@@ -43,7 +44,7 @@ git clone https://github.com/vijaiks/single-cell-gnb-scheduler-sim
 cd single-cell-gnb-scheduler-sim
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"            # numpy, PyYAML, matplotlib, pytest
-pytest -q                          # 373 tests, ~1 s
+pytest -q                          # 411 tests, ~1 s
 
 python -m gnbsim compare   configs/mixed5_l1.yaml      # RR vs Max-CQI vs PF: table + plot
 python -m gnbsim run       configs/mixed5_l2.yaml      # realistic MAC/PHY: HARQ, BLER, delayed reports
@@ -51,7 +52,7 @@ python -m gnbsim agent-run configs/mixed5_agent.yaml   # the agent starts on Max
 python -m gnbsim run configs/mixed5_agent.yaml --no-agent --algo maxcqi   # the same scenario without the agent
 
 python -m gnbsim.ul_sim            # uplink demo: prints a slot-by-slot trace
-python -m gnbsim.rach_sim          # random access demo: collision example + 40-UE load test
+python -m gnbsim.rach_sim          # random access demo: collision, PDCCH order (CFRA), load tests
 ```
 
 Each run writes `runs/<config>_<algo>_<seed>/` containing `summary.json`, `slots.csv` (one row per slot),
@@ -116,6 +117,8 @@ which is the expected trade-off.
 | **RAR** | Random Access Response (Msg2): timing advance, Msg3 grant and temporary C-RNTI per detected preamble. |
 | **RA-RNTI** | The identifier a RAR is addressed to, derived from the PRACH occasion the preamble used. |
 | **BI** | Backoff Indicator in the RAR: the maximum random wait before a UE retries. |
+| **CBRA / CFRA** | Contention-based RA (random preamble, may collide) / contention-free RA (preamble reserved for one UE). |
+| **PDCCH order** | A DCI 1_0 on a UE's C-RNTI telling it to do random access, with a dedicated preamble or 0 for CBRA. |
 | **OLLA** | Outer-Loop Link Adaptation: nudges MCS up or down to hold BLER near its target. |
 | **Jain index** | Fairness from 0.2 (one of 5 UEs gets everything) to 1.0 (all equal). Computed on throughput and on PRB share. |
 | **Starved** | A UE with data waiting that gets under half its fair PRB share, or no PRBs for 100 slots in a row. |
@@ -295,9 +298,56 @@ UE                                              gNB
 [slot  75 |   37.5 ms] UE0 contention resolution OK, TC-RNTI 0x4603 becomes its C-RNTI
 ```
 
-It then runs 40 UEs that all start within 8 ms and prints the success count, collisions, setup time and attempts.
 Msg3 is a real UL MAC PDU (`34` = UL CCCH, LCID 52, no length field) and Msg4 a real DL MAC PDU (`3e` = contention
-resolution CE, LCID 62), both built with the MAC library. Like the uplink demo, it is separate from the downlink engine.
+resolution CE, LCID 62), both built with the MAC library.
+
+### Contention-free random access (PDCCH order)
+
+A connected UE that has lost uplink sync (for example, its timing alignment timer expired while the gNB has downlink
+data for it) is told to do random access by a **PDCCH order**: a DCI format 1_0 on its C-RNTI whose frequency field is
+all ones ([`dci.py`](src/gnbsim/dci.py), TS 38.212 §7.3.1.2.1). The order carries a **dedicated preamble**, so no other
+UE can send it and there is nothing to resolve:
+
+```
+UE (has C-RNTI)                                 gNB
+ │◄─ PDCCH order (DCI 1_0 on C-RNTI) ─────────  reserves a dedicated preamble (56..63)
+ │── Msg1: dedicated preamble ───────────────►  knows exactly which UE sent it
+ │◄─ Msg2: RAR with its RAPID, TA ────────────  releases the preamble
+ │   done: applies the TA, keeps its C-RNTI (no Msg3 / Msg4)
+```
+
+Preambles 0–55 are contention-based and 56–63 are reserved (`Cfg.num_cb_preambles`). If no RAR arrives, a CFRA UE
+retries at the next occasion without backoff. If all dedicated preambles are in use, the order carries preamble
+index 0 and the UE does CBRA as a **connected** UE: Msg3 holds a C-RNTI MAC CE (`3a` = LCID 58) instead of a CCCH
+SDU, and contention is resolved by a PDCCH addressed to its C-RNTI instead of a Contention Resolution CE.
+
+Example 2 of the demo: idle UE0 starts CBRA and connected UE1 gets a PDCCH order, both using the same occasion:
+
+```
+[slot   5 |    2.5 ms] gNB PDCCH order to UE1 on C-RNTI 0x1002: preamble index 56, DCI 1_0 ff fe 00 00 00
+[slot  20 |   10.0 ms] UE0 Msg1 preamble 34, attempt 1
+[slot  20 |   10.0 ms] UE1 Msg1 preamble 56, attempt 1
+[slot  24 |   12.0 ms] gNB RAR on RA-RNTI 1: RAPIDs [34, 56], 17 B: 82 e2 00 d8 12 22 46 46 01 78 04 48 13 82 46 46 02
+[slot  24 |   12.0 ms] UE1 RAR matched dedicated RAPID 56: TA=137, CFRA complete, keeps C-RNTI 0x1002 (TC-RNTI 0x4602 ignored, no Msg3/Msg4)
+[slot  30 |   15.0 ms] UE0 Msg3 on TC-RNTI 0x4601: 34 78 9b 34 ca f5 4f 3f 00 00 00
+[slot  35 |   17.5 ms] UE0 contention resolution OK, TC-RNTI 0x4601 becomes its C-RNTI
+```
+
+The demo ends with two load tests: 40 CBRA UEs starting within 8 ms, and a mix of 30 CBRA UEs and 10 PDCCH orders
+competing for 8 dedicated preambles, with the results split by kind:
+
+```
+UEs 40: success 40, failed 0, preamble collisions 3
+  cbra           UEs 30  success 30  setup ms: mean 25.4, median 17.0, max 67.0  attempts {1: 19, 2: 9, 3: 2}
+  cfra           UEs  8  success  8  setup ms: mean 14.8, median 19.0, max 21.5  attempts {1: 4, 2: 4}
+  cfra_fallback  UEs  2  success  2  setup ms: mean 11.0, median 12.0, max 12.0  attempts {1: 2}
+```
+
+Setup time counts from the trigger (CBRA) or from the PDCCH order (CFRA), so much of it is waiting for the next
+PRACH occasion (every 10 ms). Once its preamble is sent, a CFRA UE is done 2 ms later at the RAR, and a CBRA UE 7.5 ms
+later at Msg4 if nothing collides. Half the CFRA UEs here needed a second attempt because their preamble was not
+detected (20% miss chance on the first try); none of them collided. Like the uplink demo, the random access demo is
+separate from the downlink engine.
 
 ## Configuration
 
@@ -326,8 +376,8 @@ src/gnbsim/
   macpdu.py      pack / unpack DL and UL MAC PDUs         macce.py  DL / UL MAC control elements (BSR, PHR, TA, ...)
   bsr_tables.py  TS 38.321 buffer size levels             ulgrant.py  full TS 38.214 TBS, BSR -> PRB grant sizing
   ul_sim.py      standalone UL loop using the MAC PDU library (`python -m gnbsim.ul_sim`); separate from the DL engine
-  rar.py         RAR PDU build / parse, RA-RNTI, Msg3 UL grant
-  rach_sim.py    standalone 4-step random access demo (`python -m gnbsim.rach_sim`); separate from the DL engine
+  rar.py         RAR PDU build / parse, RA-RNTI, Msg3 UL grant   dci.py  PDCCH order (DCI 1_0) encode / decode
+  rach_sim.py    standalone random access demo, CBRA and CFRA (`python -m gnbsim.rach_sim`); separate from the DL engine
   harq.py        HARQ processes and retransmissions       numerology.py  slot timing per μ
   channel.py     synthetic SINR traces                    traffic.py  full-buffer / Poisson / periodic
   ue.py          per-UE state, OLLA offset                metrics.py  per-slot log, summaries, Jain index
@@ -335,7 +385,7 @@ src/gnbsim/
   config.py      config schema   cli.py  command line    plots.py  figures
 tools/           kb_rag_search.py: kb-rag command-line wrapper
 configs/         mixed5_l1, mixed5_l2, mixed5_agent, mixed5_agent_kb, demo_100slots
-tests/           PHY, HARQ, traffic, MAC PDU / CE, RAR, random access, uplink, allocator, schedulers,
+tests/           PHY, HARQ, traffic, MAC PDU / CE, RAR, PDCCH order, random access, uplink, allocator, schedulers,
                  engine invariants, scenarios, agent
 docs/design/     design document (PDF) and Graphviz sources for its diagrams
 examples/        sample outputs: scheduler comparison, agent run
@@ -354,7 +404,8 @@ link-adaptation models, and the agent design, with diagrams.
 - MAC library: no eLCID or newer Rel-16+ CEs and no type-2 PHR; PHR values are raw indices, not dB. The CE layouts
   were not tested against real equipment.
 - Uplink demo: fixed MCS, strict priority between channels, no power control or DRX, no RLC retransmission.
-- Random access demo: 4-step contention-based only (no contention-free or 2-step RA, no SI-request RAPID-only subPDU),
+- Random access demo: 4-step CBRA and PDCCH-order CFRA only (no handover or beam-failure CFRA, no 2-step RA, no
+  SI-request RAPID-only subPDU), one SSB and PRACH mask index 0,
   no power ramping (detection probability rises per attempt instead), no HARQ on Msg3/Msg4, fixed Msg3 size,
   Msg4 without RRCSetup, one PRACH occasion every 10 ms.
 - The agent is rule-based: no learning, fixed thresholds, and one action per window.
